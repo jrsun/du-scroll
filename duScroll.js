@@ -23,7 +23,7 @@ window.onload = function() {
             },
         }, gotStream);
 
-    setInterval(filterOldFreqs, 1000);
+    // setInterval(filterOldFreqs, 1000);
     setInterval(duScroll, 10);
 }
 
@@ -76,10 +76,11 @@ function updatePitch() {
     if (currFreq != -1) {
         state.push([currFreq, currTime]);
     }
+    filterOldFreqs();
 }
 
 function filterOldFreqs() {
-    var historyMilisecondTolerance = 4000;
+    var historyMilisecondTolerance = 200;
     var currTime = Date.now();
     var i = state.length - 1;
     while (i >= 0) {
@@ -112,22 +113,35 @@ function getFrequencyFromBuf() {
 }
 
 function duScroll() {
+    // get a moving average of dfs of everything in state
+    var dfs = new Array(state.length - 1);
+    for (i = 0; i < state.length - 1; i ++ ){
+        dfs[i] = state[i+1][0] - state[i][0];
+    }
+
+    console.log(dfs);
+
+    var averageDf = average(dfs);
+    console.log(averageDf);
+    scrollBy(-30 * averageDf);
+
+
     // var freqs = state.map(function(x){ return x[0]; });
     // var stdev = standardDeviation(freqs);
     // var avg = average(freqs);
-    if (state.length >= 2) {
-        console.log('here');
-        var mostRecent = state[state.length - 1][0];
-        var secondMostRecent = state[state.length - 2][0];
-        // if ((Math.abs(mostRecent - avg) <= stdev) && (Math.abs(secondMostRecent - avg) <= stdev)) {
-        // scrollBy(0,-50 * (mostRecent - secondMostRecent));
-        if (mostRecent - secondMostRecent > 0) {   
-            scrollBy(0,-50); 
-        }
-        else if (mostRecent . secondMostRecent < 0) {
-            scrollBy(0, 50);
-        }
-    }
+    // if (state.length >= 2) {
+    //     console.log('here');
+    //     var mostRecent = state[state.length - 1][0];
+    //     var secondMostRecent = state[state.length - 2][0];
+    //     // if ((Math.abs(mostRecent - avg) <= stdev) && (Math.abs(secondMostRecent - avg) <= stdev)) {
+    //     // scrollBy(0,-50 * (mostRecent - secondMostRecent));
+    //     if (mostRecent - secondMostRecent > 0) {   
+    //         scrollBy(0,-50); 
+    //     }
+    //     else if (mostRecent . secondMostRecent < 0) {
+    //         scrollBy(0, 50);
+    //     }
+    // }
     // var filtered = filtervalues(state);
 
 }
