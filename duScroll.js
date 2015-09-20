@@ -1,8 +1,11 @@
+var MIN_SAMPLES = 0;  // will be initialized when AudioContext is created.
 var analyser = null;
 var FFT_SIZE = 2048;
+var useTimeDomain = true;
 // var tracks = null;
 // var buflen = 1024;
-var buf;
+var timeBuf;
+var freqBuf;
 
 var state = [];
 
@@ -24,7 +27,6 @@ window.onload = function() {
         }, gotStream);
 
     // setInterval(filterOldFreqs, 1000);
-    setInterval(duScroll, 10);
 }
 
 function fillPage() {
@@ -60,15 +62,32 @@ function gotStream(stream) {
     // Connect it to the destination.
     analyser = audioContext.createAnalyser();
     analyser.fftSize = FFT_SIZE;
-    buf = new Uint8Array( analyser.frequencyBinCount );
+    if (useTimeDomain) {
+        timeBuf = new Float32Array(analyser.frequencyBinCount);
+        freqBuf = new Uint8Array( analyser.frequencyBinCount );    
+    }
+    else {
+        freqBuf = new Uint8Array( analyser.frequencyBinCount );    
+    }
     mediaStreamSource.connect( analyser );
     setInterval(updatePitch, 1);
+    setInterval(duScroll, 10);
 }
 
 function updatePitch() {
-    analyser.getByteFrequencyData( buf );
+    if (useTimeDomain) {
+        updateWithTimeDomain();
+    }
+    else {
+        updateWithFreqDomain();
+    }
+    filterOldFreqs();
+}
+
+function updateWithFreqDomain() {
+    analyser.getByteFrequencyData(freqBuf);
     // console.log(buf);
-    var currFreq = getFrequencyFromBuf();
+    var currFreq = getFrequencyFromBuf(freqBuf);
     currTime = Date.now();
     // console.log(state);
     // console.log(currFreq);
@@ -76,7 +95,23 @@ function updatePitch() {
     if (currFreq != -1) {
         state.push([currFreq, currTime]);
     }
-    filterOldFreqs();
+}
+
+function updateWithTimeDomain() {
+    analyser.getByteFrequencyData(freqBuf);
+    var currFreq = getFrequencyFromBuf(freqBuf);
+
+    // this is just noise
+    if (currFreq == -1) {
+        return; 
+    }
+
+    analyser.getFloatTimeDomainData( timeBuf );
+    var ac = autoCorrelate( timeBuf, audioContext.sampleRate );
+    currTime = Date.now();
+    if (currFreq != -1) {
+        state.push([ac, currTime]);
+    }
 }
 
 function filterOldFreqs() {
@@ -88,25 +123,24 @@ function filterOldFreqs() {
         if (Math.abs(timestamp - currTime) > historyMilisecondTolerance) {
             state = state.slice(i + 1, state.length);
             return;
-            break;
         }
         i--;
     }
 }
 
-function getFrequencyFromBuf() {
+function getFrequencyFromBuf(freqBuf) {
     var MIN_LOUDNESS_ALLOWED = 210;
-    var max = buf[0];
+    var max = freqBuf[0];
     var maxIndex = 0;
 
-    for (var i = 0; i < buf.length; i++) {
-        if (buf[i] > max) {
+    for (var i = 0; i < freqBuf.length; i++) {
+        if (freqBuf[i] > max) {
             maxIndex = i;
-            max = buf[i];
+            max = freqBuf[i];
         }
     }
 
-    if (buf[maxIndex] > 210) {
+    if (freqBuf[maxIndex] > 210) {
         return maxIndex;
     }
     return -1;
@@ -114,17 +148,36 @@ function getFrequencyFromBuf() {
 
 function duScroll() {
     // get a moving average of dfs of everything in state
+    if (state.length <= 1) {
+        return;
+    }
+
     var dfs = new Array(state.length - 1);
     for (i = 0; i < state.length - 1; i ++ ){
         dfs[i] = state[i+1][0] - state[i][0];
     }
 
-    console.log(dfs);
+    if (useTimeDomain) {
+        duScrollWithTime(dfs);
+    }
+    else {
+        duScrollWithFreq(dfs);
+    }
+}
 
+function duScrollWithTime(dfs) {
     var averageDf = average(dfs);
     console.log(averageDf);
-    scrollBy(-30 * averageDf);
+    if ( Math.abs(averageDf) > 200 ) {
+        console.log(state);
+    }
+    scrollBy(0, -100 * averageDf);
+}
 
+function duScrollWithFreq(dfs) {
+    var averageDf = average(dfs);
+    console.log(averageDf);
+    scrollBy(0, -100 * averageDf);
 
     // var freqs = state.map(function(x){ return x[0]; });
     // var stdev = standardDeviation(freqs);
@@ -143,7 +196,62 @@ function duScroll() {
     //     }
     // }
     // var filtered = filtervalues(state);
+}
 
+
+function autoCorrelate( buf, sampleRate ) {
+    var SIZE = buf.length;
+    var MAX_SAMPLES = Math.floor(SIZE/2);
+    var best_offset = -1;
+    var best_correlation = 0;
+    var rms = 0;
+    var foundGoodCorrelation = false;
+    var correlations = new Array(MAX_SAMPLES);
+
+    for (var i=0;i<SIZE;i++) {
+        var val = buf[i];
+        rms += val*val;
+    }
+    rms = Math.sqrt(rms/SIZE);
+    if (rms<0.01) // not enough signal
+        return -1;
+
+    var lastCorrelation=1;
+    for (var offset = MIN_SAMPLES; offset < MAX_SAMPLES; offset++) {
+        var correlation = 0;
+
+        for (var i=0; i<MAX_SAMPLES; i++) {
+            correlation += Math.abs((buf[i])-(buf[i+offset]));
+        }
+        correlation = 1 - (correlation/MAX_SAMPLES);
+        correlations[offset] = correlation; // store it, for the tweaking we need to do below.
+        if ((correlation>0.9) && (correlation > lastCorrelation)) {
+            foundGoodCorrelation = true;
+            if (correlation > best_correlation) {
+                best_correlation = correlation;
+                best_offset = offset;
+            }
+        } else if (foundGoodCorrelation) {
+            // short-circuit - we found a good correlation, then a bad one, so we'd just be seeing copies from here.
+            // Now we need to tweak the offset - by interpolating between the values to the left and right of the
+            // best offset, and shifting it a bit.  This is complex, and HACKY in this code (happy to take PRs!) -
+            // we need to do a curve fit on correlations[] around best_offset in order to better determine precise
+            // (anti-aliased) offset.
+
+            // we know best_offset >=1, 
+            // since foundGoodCorrelation cannot go to true until the second pass (offset=1), and 
+            // we can't drop into this clause until the following pass (else if).
+            var shift = (correlations[best_offset+1] - correlations[best_offset-1])/correlations[best_offset];  
+            return sampleRate/(best_offset+(8*shift));
+        }
+        lastCorrelation = correlation;
+    }
+    if (best_correlation > 0.01) {
+        // console.log("f = " + sampleRate/best_offset + "Hz (rms: " + rms + " confidence: " + best_correlation + ")")
+        return sampleRate/best_offset;
+    }
+    return -1;
+//  var best_frequency = sampleRate/best_offset;
 }
 
 
