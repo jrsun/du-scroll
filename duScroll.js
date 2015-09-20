@@ -10,7 +10,7 @@ var freqBuf;
 var state = [];
 
 window.onload = function() {
-    fillPage();
+    // fillPage();
     audioContext = new AudioContext();
     MAX_SIZE = Math.max(4,Math.floor(audioContext.sampleRate/5000));    // corresponds to a 5kHz signal
     getUserMedia(
@@ -70,7 +70,7 @@ function gotStream(stream) {
         freqBuf = new Uint8Array( analyser.frequencyBinCount );    
     }
     mediaStreamSource.connect( analyser );
-    setInterval(updatePitch, 1);
+    setInterval(updatePitch, 10);
     setInterval(duScroll, 10);
 }
 
@@ -109,7 +109,7 @@ function updateWithTimeDomain() {
     analyser.getFloatTimeDomainData( timeBuf );
     var ac = autoCorrelate( timeBuf, audioContext.sampleRate );
     currTime = Date.now();
-    if (currFreq != -1) {
+    if (ac != -1) {
         state.push([ac, currTime]);
     }
 }
@@ -129,7 +129,7 @@ function filterOldFreqs() {
 }
 
 function getFrequencyFromBuf(freqBuf) {
-    var MIN_LOUDNESS_ALLOWED = 210;
+    var MIN_LOUDNESS_ALLOWED = 230;
     var max = freqBuf[0];
     var maxIndex = 0;
 
@@ -140,10 +140,14 @@ function getFrequencyFromBuf(freqBuf) {
         }
     }
 
-    if (freqBuf[maxIndex] > 210) {
+
+    if (freqBuf[maxIndex] > MIN_LOUDNESS_ALLOWED) {
+        $(".noise-floor").css("color", "green");
         return maxIndex;
+    } else {
+        $(".noise-floor").css("color", "red");
+        return -1;
     }
-    return -1;
 }
 
 function duScroll() {
@@ -285,4 +289,5 @@ function average(data){
 
   var avg = sum / data.length;
   return avg;
+
 }
