@@ -6,11 +6,14 @@ var useTimeDomain = true;
 // var buflen = 1024;
 var timeBuf;
 var freqBuf;
+var rafID;
+
+var lastTimeRan = Date.now();
 
 var state = [];
 
 window.onload = function() {
-    // fillPage();
+    fillPage();
     audioContext = new AudioContext();
     MAX_SIZE = Math.max(4,Math.floor(audioContext.sampleRate/5000));    // corresponds to a 5kHz signal
     getUserMedia(
@@ -26,7 +29,6 @@ window.onload = function() {
             },
         }, gotStream);
 
-    // setInterval(filterOldFreqs, 1000);
 }
 
 function fillPage() {
@@ -42,7 +44,7 @@ function error() {
 
 function getUserMedia(dictionary, callback) {
     try {
-        console.log("in getUserMedia");
+        // console.log("in getUserMedia");
         navigator.getUserMedia = 
             navigator.getUserMedia ||
             navigator.webkitGetUserMedia ||
@@ -50,13 +52,13 @@ function getUserMedia(dictionary, callback) {
 
         navigator.getUserMedia(dictionary, callback, error);
     } catch (e) {
-        console.log("there was error");
+        // console.log("there was error");
         alert('getUserMedia threw exception :' + e);
     }
 }
 
 function gotStream(stream) {
-    console.log('in gotStream');
+    // console.log('in gotStream');
     // Create an AudioNode from the stream.
     mediaStreamSource = audioContext.createMediaStreamSource(stream);
     // Connect it to the destination.
@@ -70,18 +72,29 @@ function gotStream(stream) {
         freqBuf = new Uint8Array( analyser.frequencyBinCount );    
     }
     mediaStreamSource.connect( analyser );
-    setInterval(updatePitch, 10);
+    updatePitch();
+    // setInterval(updatePitch, 10);
     setInterval(duScroll, 10);
 }
 
 function updatePitch() {
+    var now = Date.now();
+    // console.log("time since last update pitch: " + (now - lastTimeRan));
+    lastTimeRan = now;
     if (useTimeDomain) {
+        var a = Date.now();
         updateWithTimeDomain();
+        var b = Date.now();
+        // console.log(b + ' update with time domain took: ' + (b-a));
     }
     else {
         updateWithFreqDomain();
     }
     filterOldFreqs();
+    // console.log("size of state: " + state.length);
+    if (!window.requestAnimationFrame)
+        window.requestAnimationFrame = window.webkitRequestAnimationFrame;
+    rafID = window.requestAnimationFrame( updatePitch );
 }
 
 function updateWithFreqDomain() {
@@ -90,7 +103,6 @@ function updateWithFreqDomain() {
     var currFreq = getFrequencyFromBuf(freqBuf);
     currTime = Date.now();
     // console.log(state);
-    // console.log(currFreq);
 
     if (currFreq != -1) {
         state.push([currFreq, currTime]);
@@ -108,9 +120,11 @@ function updateWithTimeDomain() {
 
     analyser.getFloatTimeDomainData( timeBuf );
     var ac = autoCorrelate( timeBuf, audioContext.sampleRate );
+    console.log(ac);
     currTime = Date.now();
-    if (ac != -1) {
+    if (ac != -1 && ac < 500) {
         state.push([ac, currTime]);
+        // console.log(state); 
     }
 }
 
@@ -156,31 +170,38 @@ function duScroll() {
         return;
     }
 
+    if (useTimeDomain) {
+        duScrollWithTime();
+    }
+    else {
+        duScrollWithFreq();
+    }
+}
+
+function duScrollWithTime() {
+    var freqs = state.map(function(x) { return x[0]; });
+    var minFreq = Math.min.apply(Math,freqs);
+    var filtered = state.filter(function(x) { return x[0] <= 1.5 * minFreq; });
+    var dfs = new Array(state.length - 1);
+    for (i = 0; i < state.length - 1; i ++ ){
+        dfs[i] = state[i+1][0] - state[i][0];
+    }
+    var averageDf = average(dfs);
+    // console.log(averageDf);
+    // if ( Math.abs(averageDf) > 200 ) {
+    //     console.log(state);
+    // }
+    scrollBy(0, -100 * averageDf);
+}
+
+function duScrollWithFreq() {
     var dfs = new Array(state.length - 1);
     for (i = 0; i < state.length - 1; i ++ ){
         dfs[i] = state[i+1][0] - state[i][0];
     }
 
-    if (useTimeDomain) {
-        duScrollWithTime(dfs);
-    }
-    else {
-        duScrollWithFreq(dfs);
-    }
-}
-
-function duScrollWithTime(dfs) {
     var averageDf = average(dfs);
-    console.log(averageDf);
-    if ( Math.abs(averageDf) > 200 ) {
-        console.log(state);
-    }
-    scrollBy(0, -100 * averageDf);
-}
-
-function duScrollWithFreq(dfs) {
-    var averageDf = average(dfs);
-    console.log(averageDf);
+    // console.log(averageDf);
     scrollBy(0, -100 * averageDf);
 
     // var freqs = state.map(function(x){ return x[0]; });
