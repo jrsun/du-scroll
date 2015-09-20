@@ -7,6 +7,8 @@ var useTimeDomain = true;
 var timeBuf;
 var freqBuf;
 var rafID;
+var pitch = new PitchAnalyzer(44100);
+
 
 var lastTimeRan = Date.now();
 
@@ -75,7 +77,7 @@ function gotStream(stream) {
     mediaStreamSource.connect( analyser );
     updatePitch();
     // setInterval(updatePitch, 10);
-    setInterval(duScroll, 10);
+    setInterval(duScroll, 20);
 }
 
 function updatePitch() {
@@ -114,24 +116,34 @@ function updateWithFreqDomain() {
 function updateWithTimeDomain() {
     analyser.getByteFrequencyData(freqBuf);
     var currFreq = getFrequencyFromBuf(freqBuf);
+    var currTime = Date.now();
 
     // this is just noise
     if (currFreq == -1) {
         return; 
     }
+    analyser.getFloatTimeDomainData(timeBuf);
+    pitch.input(timeBuf);
+    pitch.process();
+    var tone = pitch.findTone();
 
-    analyser.getFloatTimeDomainData( timeBuf );
-    var ac = autoCorrelate( timeBuf, audioContext.sampleRate );
-    // console.log(ac);
-    currTime = Date.now();
-    if (ac != -1 && isConsistent(ac)) {
-        freqState.push(ac);
+    if (tone && isConsistent(tone)) {
+        freqState.push(tone.freq);
+        console.log(tone.freq);
         timeState.push(currTime);
-        console.log(ac); 
     }
+
+    // analyser.getFloatTimeDomainData( timeBuf );
+    // var ac = autoCorrelate( timeBuf, audioContext.sampleRate );
+    // // console.log(ac);
+    // if (ac != -1 && isConsistent(ac)) {
+    //     freqState.push(ac);
+    //     timeState.push(currTime);
+    //     console.log(ac); 
+    // }
 }
 
-function isConsistent(ac) {
+function isConsistent(tone) {
     if (freqState.length < 3) {
         console.log("ahhhh");
         return true;
@@ -142,7 +154,7 @@ function isConsistent(ac) {
     console.log(freqState);
     console.log("avg: " + avgFreq);
     console.log("stdev: " + stdevFreq);
-    return Math.abs(ac - avgFreq) <= stdevFreq;
+    return Math.abs(tone.freq - avgFreq) <= stdevFreq;
 }
 
 function filterOldFreqs() {
