@@ -10,7 +10,8 @@ var rafID;
 
 var lastTimeRan = Date.now();
 
-var state = [];
+var freqState = [];
+var timeState = [];
 
 window.onload = function() {
     fillPage();
@@ -105,7 +106,8 @@ function updateWithFreqDomain() {
     // console.log(state);
 
     if (currFreq != -1) {
-        state.push([currFreq, currTime]);
+        freqState.push(currFreq);
+        timeState.push(currTime);
     }
 }
 
@@ -120,22 +122,38 @@ function updateWithTimeDomain() {
 
     analyser.getFloatTimeDomainData( timeBuf );
     var ac = autoCorrelate( timeBuf, audioContext.sampleRate );
-    console.log(ac);
+    // console.log(ac);
     currTime = Date.now();
-    if (ac != -1 && ac < 500) {
-        state.push([ac, currTime]);
-        // console.log(state); 
+    if (ac != -1 && isConsistent(ac)) {
+        freqState.push(ac);
+        timeState.push(currTime);
+        console.log(ac); 
     }
 }
 
+function isConsistent(ac) {
+    if (freqState.length < 3) {
+        console.log("ahhhh");
+        return true;
+    }
+
+    var avgFreq = average(freqState);
+    var stdevFreq = standardDeviation(freqState);
+    console.log(freqState);
+    console.log("avg: " + avgFreq);
+    console.log("stdev: " + stdevFreq);
+    return Math.abs(ac - avgFreq) <= stdevFreq;
+}
+
 function filterOldFreqs() {
-    var historyMilisecondTolerance = 200;
+    var historyMilisecondTolerance = 500;
     var currTime = Date.now();
-    var i = state.length - 1;
+    var i = timeState.length - 1;
     while (i >= 0) {
-        var timestamp = state[i][1];
+        var timestamp = timeState[i];
         if (Math.abs(timestamp - currTime) > historyMilisecondTolerance) {
-            state = state.slice(i + 1, state.length);
+            timeState = timeState.slice(i + 1, timeState.length);
+            freqState = freqState.slice(i + 1, freqState.length);
             return;
         }
         i--;
@@ -166,7 +184,7 @@ function getFrequencyFromBuf(freqBuf) {
 
 function duScroll() {
     // get a moving average of dfs of everything in state
-    if (state.length <= 1) {
+    if (freqState.length <= 1) {
         return;
     }
 
@@ -179,12 +197,11 @@ function duScroll() {
 }
 
 function duScrollWithTime() {
-    var freqs = state.map(function(x) { return x[0]; });
-    var minFreq = Math.min.apply(Math,freqs);
-    var filtered = state.filter(function(x) { return x[0] <= 1.5 * minFreq; });
-    var dfs = new Array(state.length - 1);
-    for (i = 0; i < state.length - 1; i ++ ){
-        dfs[i] = state[i+1][0] - state[i][0];
+    var minFreq = Math.min.apply(Math, freqState);
+    // var filtered = freqState.filter(function(x) { return x <= 1.5 * minFreq; }); /// QUESTIONABLE?
+    var dfs = new Array(freqState.length - 1);
+    for (i = 0; i < freqState.length - 1; i ++ ){
+        dfs[i] = freqState[i+1] - freqState[i];
     }
     var averageDf = average(dfs);
     // console.log(averageDf);
@@ -195,9 +212,9 @@ function duScrollWithTime() {
 }
 
 function duScrollWithFreq() {
-    var dfs = new Array(state.length - 1);
-    for (i = 0; i < state.length - 1; i ++ ){
-        dfs[i] = state[i+1][0] - state[i][0];
+    var dfs = new Array(freqState.length - 1);
+    for (i = 0; i < freqState.length - 1; i ++ ){
+        dfs[i] = freqState[i+1] - freqState[i];
     }
 
     var averageDf = average(dfs);
